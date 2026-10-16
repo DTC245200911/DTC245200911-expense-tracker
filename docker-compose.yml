@@ -21,6 +21,7 @@ services:
       start_period: 10s
     networks:
       - net-db
+    # Giữ capability PostgreSQL cần khi khởi tạo dữ liệu, nhưng chặn nâng quyền.
     security_opt:
       - no-new-privileges:true
 
@@ -30,11 +31,19 @@ services:
     environment:
       DB_HOST: db
       DB_NAME: ${DB_NAME:?Set DB_NAME in .env}
-      APP_DB_USER: ${APP_DB_USER:?Set APP_DB_USER in .env}
-      APP_DB_PASSWORD: ${APP_DB_PASSWORD:?Set APP_DB_PASSWORD in .env}
+      DB_USER: ${APP_DB_USER:?Set APP_DB_USER in .env}
+      DB_PASSWORD: ${APP_DB_PASSWORD:?Set APP_DB_PASSWORD in .env}
+      SECRET_KEY: ${SECRET_KEY:?Set SECRET_KEY in .env}
     depends_on:
       db:
         condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5000/health', timeout=3)"]
       interval: 10s
@@ -59,6 +68,13 @@ services:
     volumes:
       - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
       - ./nginx/certs:/etc/nginx/certs:ro
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
     networks:
       - net-web
       - net-mon
@@ -144,6 +160,31 @@ services:
       - net-db
       - net-mon
 
+  loki:
+    image: grafana/loki:3.2.0
+    restart: unless-stopped
+    command:
+      - -config.file=/etc/loki/loki-config.yml
+    volumes:
+      - ./loki/loki-config.yml:/etc/loki/loki-config.yml:ro
+      - loki-data:/loki
+    networks:
+      - net-mon
+
+  promtail:
+    image: grafana/promtail:3.2.0
+    restart: unless-stopped
+    command:
+      - -config.file=/etc/promtail/promtail-config.yml
+    volumes:
+      - ./promtail/promtail-config.yml:/etc/promtail/promtail-config.yml:ro
+      # Promtail cần Docker API để phát hiện container và lấy log.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      - loki
+    networks:
+      - net-mon
+
 networks:
   net-web:
   net-db:
@@ -155,3 +196,4 @@ volumes:
   pgadmin-data:
   prom-data:
   grafana-data:
+  loki-data:
